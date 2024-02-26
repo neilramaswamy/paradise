@@ -56,24 +56,20 @@ class ExecutionEngine:
         handlers = ExecutionEngine.extract_handlers(nodes[0].__class__)
 
         for action in actions:
-            print(f"Handling {action}")
-
             (recipient_id, handler_string, message, additional_arg) = (
                 ExecutionEngine.get_call_arguments(action)
             )
 
             assert recipient_id >= 0 and recipient_id < len(nodes)
-            target_node = nodes[recipient_id]
+            target_node = [node for node in nodes if node.id == recipient_id][0]
 
             handler = handlers[handler_string]
 
             if additional_arg:
                 print(
-                    f"For {recipient_id}, evaluating {message} with {handler} with additional arg {additional_arg}"
+                    f"For {recipient_id}, evaluating {message} with {handler.__name__}"
                 )
                 handler(target_node, message, additional_arg)
             else:
-                print(
-                    f"For {recipient_id}, evaluating {message} with {handler} with NO additional arg"
-                )
+                print(f"For {recipient_id}, evaluating {message} with {handler}")
                 handler(target_node, message)

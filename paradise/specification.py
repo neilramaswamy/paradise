@@ -18,6 +18,16 @@ class BaseSpecification:
     # access to it inside of recv.
     messages: list[Message] = []
 
+    # The only instance variable we need is the id
+    id: int = -1
+
+    def __init__(self, id: int):
+        self.id = id
+
+    @staticmethod
+    def reset():
+        BaseSpecification.messages = []
+
     def send(self, message: Message):
         BaseSpecification.messages.append(message)
 
