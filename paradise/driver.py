@@ -56,10 +56,10 @@ if __name__ == "__main__":
     actions = [
         # Probably can do HandlePetition(_, a, b, c) for additional params,
         # where _ has a special meaning of the actual Message
-        "1: HandlePetition",  # Handles petition from 0; 0 <- Vote(true)
-        "0: HandleVote",  # 0 handles Vote(true), becomes leader
-        "2: HandlePetition",  # Handles petition from 1; 1 <- Vote(true)
-        "1: HandleVote",  # 1 handles Vote(true), becomes leader
+        "HandlePetition(1, _)",  # Handles petition from 0; 0 <- Vote(true)
+        "HandleVote(0, _)",  # 0 handles Vote(true), becomes leader
+        "HandlePetition(2, _)",  # Handles petition from 1; 1 <- Vote(true)
+        "HandleVote(1, _)",  # 1 handles Vote(true), becomes leader
     ]
 
     ExecutionEngine.evaluate(nodes, actions)

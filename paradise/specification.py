@@ -22,7 +22,7 @@ class BaseSpecification:
         BaseSpecification.messages.append(message)
 
     @staticmethod
-    def recv(message_name: str, recipient_id: int) -> Optional[Message]:
+    def recv(message_type: str, recipient_id: int) -> Optional[Message]:
         """
         Returns the first Message in BaseSpecification.messages of type
         message_name that is being sent to recipient_id. It removes it from
@@ -44,7 +44,7 @@ class BaseSpecification:
 
         for message in BaseSpecification.messages:
             name = message.__class__.__name__
-            if name.endswith(message_name) and message.recipient_id == recipient_id:
+            if name.endswith(message_type) and message.recipient_id == recipient_id:
                 found_message = message
                 break
 
