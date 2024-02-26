@@ -122,34 +122,13 @@ class ExecutionEngine:
         return handler[len(handle_str) :]
 
     @staticmethod
-    def evaluate():
-        zero = BadConsensus(0)
-        one = BadConsensus(1)
-        two = BadConsensus(2)
-
-        actions = [
-            "1: HandlePetition",  # Handles petition from 0; 0 <- Vote(true)
-            "0: HandleVote",  # 0 handles Vote(true), becomes leader
-            "2: HandlePetition",  # Handles petition from 1; 1 <- Vote(true)
-            "1: HandleVote",  # 1 handles Vote(true), becomes leader
-        ]
-
+    def evaluate(nodes: list[BaseSpecification], actions: list[str]):
         handlers = ExecutionEngine.extract_handlers(BadConsensus)
 
         for action in actions:
             recipient_id = int(action[0])
-            target_node: Optional[BaseSpecification] = None
-
-            if recipient_id == 0:
-                target_node = zero
-            elif recipient_id == 1:
-                target_node = one
-            elif recipient_id == 2:
-                target_node = two
-            else:
-                raise Exception(f"Found unknown target node in action: {action}")
-
-            assert target_node != None
+            assert recipient_id >= 0 and recipient_id < len(nodes)
+            target_node = nodes[recipient_id]
 
             # Something like "HandlePetitiion"
             handler_string = action[action.index("Handle") :]
@@ -160,15 +139,23 @@ class ExecutionEngine:
             )
             message = BaseSpecification.recv(message_string, recipient_id)
 
-            # Evaluate!
+            # TODO: If message == None, then we have an invalid specification.
+
             print(f"For {recipient_id}, evaluating {message} with {handler}")
             handler(target_node, message)
 
-        print("End state is: ")
-        print(zero.is_leader)
-        print(one.is_leader)
-        print(two.is_leader)
-
 
 if __name__ == "__main__":
-    ExecutionEngine.evaluate()
+    nodes = [BadConsensus(0), BadConsensus(1), BadConsensus(2)]
+
+    actions = [
+        # Probably can do HandlePetition(_, a, b, c) for additional params,
+        # where _ has a special meaning of the actual Message
+        "1: HandlePetition",  # Handles petition from 0; 0 <- Vote(true)
+        "0: HandleVote",  # 0 handles Vote(true), becomes leader
+        "2: HandlePetition",  # Handles petition from 1; 1 <- Vote(true)
+        "1: HandleVote",  # 1 handles Vote(true), becomes leader
+    ]
+
+    ExecutionEngine.evaluate(nodes, actions)
+    [print(node.is_leader) for node in nodes]
