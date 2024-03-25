@@ -69,6 +69,7 @@ class SingleVoteMinIdRingElection(BaseSpecification):
 
 
 class BadConsensusTest(unittest.TestCase):
+    @SingleVoteInRing.CheckMultipleLeaders
     def test_two_leaders(self):
         voting_protocol = SingleVoteInRing([0, 1, 2])
 
@@ -84,9 +85,7 @@ class BadConsensusTest(unittest.TestCase):
         voting_protocol.handle_vote(1)
         voting_protocol.handle_vote(0)
 
-        self.assertTrue(voting_protocol.node_map[0].is_leader)
-        self.assertTrue(voting_protocol.node_map[1].is_leader)
-        self.assertFalse(voting_protocol.node_map[2].is_leader)
+        return voting_protocol
 
     def test_one_leader(self):
         voting_protocol = SingleVoteInRing([2, 1, 0])

@@ -19,6 +19,9 @@ class BaseSpecification:
         for message in messages:
             self.messages[message.recipient_id].append(message)
 
+    def initialize(self, node_id: int):
+        self.send(self.node_map[node_id].initialize())
+
     def act(self, node_id: int, preferred_message: BaseSpecification.Message | None = None):
         # Callstack magic to figure out the calling method 
         node = self.node_map[node_id]
@@ -44,8 +47,6 @@ class BaseSpecification:
             if found_message is None:
                 raise Exception("Could not find preferred message")
         else:
-
-            # God im sorry for what im about to do
             raw_message_name = handler_name.split("_")[1]
             raw_message_type = BaseSpecification.__convert_to_pascal_case(raw_message_name)
 
@@ -89,6 +90,19 @@ class SingleVoteInRing(BaseSpecification):
             node_map[n] = _SingleVoteInRingNode(n, nodes[(i + 1) % len(nodes)])
 
         super().__init__(node_map)
+    
+
+    def CheckMultipleLeaders(test_fn):
+        def wrapper(self):
+            voting_protocol: SingleVoteInRing = test_fn(self)
+
+            num_leaders = 0
+            for node in voting_protocol.node_map.values():
+                if node.is_leader:
+                    num_leaders += 1
+            
+            self.assertGreater(num_leaders, 1)
+        return wrapper
 
     @dataclass
     class Petition(BaseSpecification.Message):
@@ -104,9 +118,8 @@ class SingleVoteInRing(BaseSpecification):
     def handle_vote(self, node_id: int, vote: Vote | None = None):
         self.act(node_id, vote)
     
-    # Have to explicitly call initialize
     def initialize(self, node_id: int):
-        self.send(self.node_map[node_id].initialize())
+        super().initialize(node_id)
 
     
 class _SingleVoteInRingNode():
