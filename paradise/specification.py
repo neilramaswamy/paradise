@@ -1,65 +1,141 @@
+from __future__ import annotations
+
+import traceback
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, Optional
 
 
 class BaseSpecification:
     @dataclass
     class Message:
-        sender_id: Optional[int]
-        recipient_id: Optional[int]
+        sender_id: int
+        recipient_id: int
 
-    # This static variable is a bit dangerous:
-    #
-    # It stores messages across _all_ subclasses of BaseSpecification. So if
-    # BaseSpecification is being used by two different subclasses in the same
-    # Python process, messages will be mixed up. We can probably solve this by
-    # keeping a map from subclass name to list[Message]. But do note, we need
-    # to keep the messages list up here, hoisted to the parent, so that we have
-    # access to it inside of recv.
-    messages: list[Message] = []
+    def __init__(self, node_map: dict[int, any]):
+        self.node_map = node_map
+        self.messages: dict[int, list[BaseSpecification.Message]] = {i: [] for i in node_map}
 
-    # The only instance variable we need is the id
-    id: int = -1
+    def send(self, messages: list[Message]):
+        for message in messages:
+            self.messages[message.recipient_id].append(message)
 
-    def __init__(self, id: int):
+    def act(self, node_id: int, preferred_message: BaseSpecification.Message | None = None):
+        # Callstack magic to figure out the calling method 
+        node = self.node_map[node_id]
+
+        stack = traceback.extract_stack()
+        handler_name: Optional[str] = None
+
+        for frame in reversed(stack):
+            if frame.name.startswith("handle_"):
+                handler_name = frame.name
+        
+        if handler_name is None:
+            raise Exception("Could not find calling method")
+        
+        handler = getattr(node, handler_name)
+        found_message: BaseSpecification.Message | None = None
+
+        if preferred_message is not None:
+            for message in self.messages[node_id]:
+                if message == preferred_message:
+                    found_message = message
+                    break 
+            if found_message is None:
+                raise Exception("Could not find preferred message")
+        else:
+
+            # God im sorry for what im about to do
+            raw_message_name = handler_name.split("_")[1]
+            raw_message_type = BaseSpecification.__convert_to_pascal_case(raw_message_name)
+
+            for message in self.messages[node_id]:
+                # Case insensitive in case users do something like "HTTPMessage"
+                if message.__class__.__name__.lower() == raw_message_type:
+                    found_message = message
+                    break
+            if found_message is None:
+                raise Exception("Could not find message of type " + raw_message_type)
+
+        assert(found_message is not None)
+        self.messages[node_id].remove(found_message)
+
+        new_messages = handler(found_message)
+        self.send(new_messages)
+
+
+    def __convert_to_pascal_case(snake_str: str):
+        if snake_str.startswith('_') or snake_str.endswith('_') or '__' in snake_str:
+            raise ValueError("Invalid input string")
+
+        words = snake_str.split('_')
+        capitalized_words = [word.lower() for word in words]
+        return ''.join(capitalized_words)
+
+
+class SingleVoteInRing(BaseSpecification):
+    """
+
+    The handler methods, named handle_<message_type>, are effectively sugar
+    around handling a particular <message_type>. If the specific message is
+    not specified, then the engine will pick a message of that type. If the
+    specific message is specified, then the engine will try to search for a
+    message that deeply equals the specified one.
+    """
+    def __init__(self, nodes: list[int]) -> SingleVoteInRing:
+        node_map: dict[int, _SingleVoteInRingNode] = {}
+
+        for i, n in enumerate(nodes):
+            node_map[n] = _SingleVoteInRingNode(n, nodes[(i + 1) % len(nodes)])
+
+        super().__init__(node_map)
+
+    @dataclass
+    class Petition(BaseSpecification.Message):
+        pass
+
+    @dataclass
+    class Vote(BaseSpecification.Message):
+        accepted: bool
+
+    def handle_petition(self, node_id: int, petition: Petition | None = None):
+        self.act(node_id, petition)
+    
+    def handle_vote(self, node_id: int, vote: Vote | None = None):
+        self.act(node_id, vote)
+    
+    # Have to explicitly call initialize
+    def initialize(self, node_id: int):
+        self.send(self.node_map[node_id].initialize())
+
+    
+class _SingleVoteInRingNode():
+    Vote = SingleVoteInRing.Vote
+    Petition = SingleVoteInRing.Petition
+
+    def __init__(self, id: int, right: int):
         self.id = id
+        self.is_leader = False
+        self.right = right
+    
+    def __repr__(self):
+        return f"Node {self.id} is leader: {self.is_leader}"
 
-    @staticmethod
-    def reset():
-        BaseSpecification.messages = []
+    # No arguments given to initialize
+    def initialize(self) -> list[BaseSpecification.Message]:
+        return [self.Petition(self.id, self.right)]
 
-    def send(self, message: Message):
-        BaseSpecification.messages.append(message)
+    def handle_vote(self, vote: Vote) -> list[BaseSpecification.Message]:
+        assert self.id == vote.recipient_id
+        if vote.accepted:
+            self.is_leader = True
+        return []
 
-    @staticmethod
-    def recv(message_type: str, recipient_id: int) -> Optional[Message]:
-        """
-        Returns the first Message in BaseSpecification.messages of type
-        message_name that is being sent to recipient_id. It removes it from
-        the messages list.
+    def handle_petition(self, petition: Petition):
+        assert self.id == petition.recipient_id
 
-        This is actually a fairly problematic way to implement receive. Suppose we
-        have two nodes A and B that send messages M1 and M2 (in that order),
-        and of the same message_name, to C.
-
-        If we then call recv(message_name, C), we will return M1. However, it's
-        possible that we want to simulate the interleaving of send(M1) and then
-        send(M2), but M2 <- recv and *then* M1 <- recv.
-
-        That's not currently possible with this implementation. To simulate that
-        interleaving, we'd likely need to attach unique identifiers to each message,
-        and have users specify which one they'd like to handle.
-        """
-        found_message: Optional[BaseSpecification.Message] = None
-
-        for message in BaseSpecification.messages:
-            name = message.__class__.__name__
-            if name.endswith(message_type) and message.recipient_id == recipient_id:
-                found_message = message
-                break
-
-        if found_message is None:
-            return None
-
-        BaseSpecification.messages.remove(found_message)
-        return found_message
+        # Reject senders with higher IDs; lowest ID wins
+        if petition.sender_id >= self.id or self.is_leader:
+            return [self.Vote(self.id, petition.sender_id, False)]
+        else:
+            return [self.Vote(self.id, petition.sender_id, True)]

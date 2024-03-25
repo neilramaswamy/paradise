@@ -1,8 +1,8 @@
 import unittest
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from paradise.engine import ExecutionEngine
-from paradise.specification import BaseSpecification
+from paradise.specification import BaseSpecification, SingleVoteInRing
 
 
 class SingleVoteMinIdRingElection(BaseSpecification):
@@ -23,11 +23,12 @@ class SingleVoteMinIdRingElection(BaseSpecification):
     ##############
 
     @dataclass
-    class Petition(BaseSpecification.Message): ...
+    class Petition(BaseSpecification.Message):
+        pass
 
     @dataclass
     class Vote(BaseSpecification.Message):
-        accepted: bool
+        accepted: bool = False
 
     # User-defined instance variables
     id: int = -1
@@ -69,50 +70,41 @@ class SingleVoteMinIdRingElection(BaseSpecification):
 
 class BadConsensusTest(unittest.TestCase):
     def test_two_leaders(self):
-        BaseSpecification.reset()
+        voting_protocol = SingleVoteInRing([0, 1, 2])
 
-        nodes = [
-            SingleVoteMinIdRingElection(0, right=1),
-            SingleVoteMinIdRingElection(1, right=2),
-            SingleVoteMinIdRingElection(2, right=0),
-        ]
+        # Initialize
+        voting_protocol.initialize(0)
+        voting_protocol.initialize(1)
+        voting_protocol.initialize(2)
 
-        actions = [
-            "HandlePetition(1, _)",
-            'HandleVote(0, _, "foo")',
-            "HandlePetition(2, _)",
-            "HandleVote(1, _, 3)",
-        ]
+        voting_protocol.handle_petition(0)
+        voting_protocol.handle_vote(2)
+        voting_protocol.handle_petition(2) 
+        voting_protocol.handle_petition(1) 
+        voting_protocol.handle_vote(1)
+        voting_protocol.handle_vote(0)
 
-        ExecutionEngine.evaluate(nodes, actions)
-
-        self.assertTrue(nodes[0].is_leader)
-        self.assertTrue(nodes[1].is_leader)
-        self.assertTrue(not nodes[2].is_leader)
+        self.assertTrue(voting_protocol.node_map[0].is_leader)
+        self.assertTrue(voting_protocol.node_map[1].is_leader)
+        self.assertFalse(voting_protocol.node_map[2].is_leader)
 
     def test_one_leader(self):
-        BaseSpecification.reset()
+        voting_protocol = SingleVoteInRing([2, 1, 0])
 
-        zero = SingleVoteMinIdRingElection(0, right=2)
-        one = SingleVoteMinIdRingElection(1, right=0)
-        two = SingleVoteMinIdRingElection(2, right=1)
+        voting_protocol.initialize(0)
+        voting_protocol.initialize(1)
+        voting_protocol.initialize(2)
 
-        nodes = [zero, one, two]
+        voting_protocol.handle_petition(1)
+        voting_protocol.handle_petition(0)
+        voting_protocol.handle_petition(2)
+        voting_protocol.handle_vote(0)
+        voting_protocol.handle_vote(1)
+        voting_protocol.handle_vote(2)
 
-        actions = [
-            "HandlePetition(1, _)",  # 2 -> 1, 1 rejects it
-            "HandlePetition(0, _)",  # 1 -> 0, 0 rejects it
-            "HandlePetition(2, _)",  # 0 -> 2, 2 accepts it
-            'HandleVote(0, _, "p")',
-            'HandleVote(1, _, "o")',
-            'HandleVote(2, _, "c")',
-        ]
-
-        ExecutionEngine.evaluate(nodes, actions)
-
-        self.assertTrue(zero.is_leader)
-        self.assertTrue(not one.is_leader)
-        self.assertTrue(not two.is_leader)
+        self.assertTrue(voting_protocol.node_map[0].is_leader)
+        self.assertFalse(voting_protocol.node_map[1].is_leader)
+        self.assertFalse(voting_protocol.node_map[2].is_leader)
 
 
 if __name__ == "__main__":
