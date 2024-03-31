@@ -1,8 +1,63 @@
 from __future__ import annotations
 
+import dataclasses
+import json
 import traceback
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Any, Callable, Optional, TypeAlias, cast
+
+
+@dataclass
+class Edge:
+    """
+    Edge represents a directed edge between two nodes in the system.
+    """
+
+    # The name of the source node
+    src: str
+    # The name of the destination node
+    dst: str
+
+    # src_clock and dst_clock are the logical times at which a message is sent and received,
+    # respectively. These effectively just give us ordering along the time axis, and as long
+    # as the UI respects that a smaller time is always rendered to the left of a larger time,
+    # it will display the system state correctly.
+    src_clock: int
+    dst_clock: int
+
+@dataclass
+class Snapshot:
+    """
+    Snapshot is JSON-serializable system state. It should be possible for a rendering library
+    to take a snapshot and render it without needing to "derive" system properties itself.
+    """
+
+    # Ordered list of nodes in the system. These should be rendered from top to bottom.
+    nodes: list[int]
+    edges: list[Edge]
+
+
+class IntermediateRepresentation:
+    # TODO: Update all NodeIds to be stringifiable
+    def __init__(self, nodes: list[int]):
+        self.__nodes = nodes
+        self.__edges: list[Edge] = []
+
+    def receive(self, im: BaseSpecification.InternalMessage):
+        assert im.dst_clock is not None
+
+        e = Edge(
+            str(im.message.sender_id),
+            str(im.message.recipient_id),
+            im.src_clock,
+            cast(int, im.dst_clock)
+        )
+        
+        self.__edges.append(e)
+    
+    def serialize(self) -> str:
+        snapshot = Snapshot(self.__nodes, self.__edges)
+        return json.dumps(dataclasses.asdict(snapshot))
 
 
 class BaseSpecification:
@@ -10,14 +65,30 @@ class BaseSpecification:
     class Message:
         sender_id: int
         recipient_id: int
+    
+    @dataclass
+    class InternalMessage:
+        message: BaseSpecification.Message
 
-    def __init__(self, node_map: dict[int, any]):
+        src_clock: int
+        # dst_clock is None because it is not known at sending time when a message will be received
+        dst_clock: int | None
+
+    def __init__(self, node_map: dict[int, Any]):
+        # Logical clock of the system. Every time that we call send() or act(),
+        # we increment the clock.
+        self.__clock = 0
+        self._ir = IntermediateRepresentation(list(node_map.keys()))
+
         self.node_map = node_map
-        self.messages: dict[int, list[BaseSpecification.Message]] = {i: [] for i in node_map}
+        self.__messages: dict[int, list[BaseSpecification.InternalMessage]] = {i: [] for i in node_map}
 
     def send(self, messages: list[Message]):
         for message in messages:
-            self.messages[message.recipient_id].append(message)
+            recipient_id = message.recipient_id
+            internal_message = BaseSpecification.InternalMessage(message, self.__clock, None)
+
+            self.__messages[recipient_id].append(internal_message)
 
     def initialize(self, node_id: int):
         self.send(self.node_map[node_id].initialize())
@@ -36,35 +107,40 @@ class BaseSpecification:
         if handler_name is None:
             raise Exception("Could not find calling method")
         
-        handler = getattr(node, handler_name)
-        found_message: BaseSpecification.Message | None = None
+        handler: Callable[[BaseSpecification.Message], list[BaseSpecification.Message]] = getattr(node, handler_name)
+        found_im: BaseSpecification.InternalMessage | None = None
 
         if preferred_message is not None:
-            for message in self.messages[node_id]:
-                if message == preferred_message:
-                    found_message = message
+            for im in self.__messages[node_id]:
+                if im.message == preferred_message:
+                    found_im = im 
                     break 
-            if found_message is None:
+            if found_im is None:
                 raise Exception("Could not find preferred message")
         else:
             raw_message_name = handler_name.split("_")[1]
             raw_message_type = BaseSpecification.__convert_to_pascal_case(raw_message_name)
 
-            for message in self.messages[node_id]:
+            for im in self.__messages[node_id]:
                 # Case insensitive in case users do something like "HTTPMessage"
-                if message.__class__.__name__.lower() == raw_message_type:
-                    found_message = message
+                if im.message.__class__.__name__.lower() == raw_message_type:
+                    found_im = im 
                     break
-            if found_message is None:
+            if found_im is None:
                 raise Exception("Could not find message of type " + raw_message_type)
 
-        assert(found_message is not None)
-        self.messages[node_id].remove(found_message)
+        assert(found_im is not None)
+        self.__clock += 1
+        found_im.dst_clock = self.__clock
 
-        new_messages = handler(found_message)
+        self._ir.receive(found_im)
+        self.__messages[node_id].remove(found_im)
+
+        new_messages = handler(found_im.message)
         self.send(new_messages)
 
 
+    @staticmethod
     def __convert_to_pascal_case(snake_str: str):
         if snake_str.startswith('_') or snake_str.endswith('_') or '__' in snake_str:
             raise ValueError("Invalid input string")
@@ -83,7 +159,7 @@ class SingleVoteInRing(BaseSpecification):
     specific message is specified, then the engine will try to search for a
     message that deeply equals the specified one.
     """
-    def __init__(self, nodes: list[int]) -> SingleVoteInRing:
+    def __init__(self, nodes: list[int]) -> None:
         node_map: dict[int, _SingleVoteInRingNode] = {}
 
         for i, n in enumerate(nodes):
@@ -92,6 +168,7 @@ class SingleVoteInRing(BaseSpecification):
         super().__init__(node_map)
     
 
+    @staticmethod
     def CheckMultipleLeaders(test_fn):
         def wrapper(self):
             voting_protocol: SingleVoteInRing = test_fn(self)
@@ -123,8 +200,8 @@ class SingleVoteInRing(BaseSpecification):
 
     
 class _SingleVoteInRingNode():
-    Vote = SingleVoteInRing.Vote
-    Petition = SingleVoteInRing.Petition
+    Vote: TypeAlias = SingleVoteInRing.Vote
+    Petition: TypeAlias = SingleVoteInRing.Petition
 
     def __init__(self, id: int, right: int):
         self.id = id
