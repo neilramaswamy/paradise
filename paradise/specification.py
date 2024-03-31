@@ -11,19 +11,23 @@ from typing import Any, Callable, Optional, TypeAlias, cast
 class Edge:
     """
     Edge represents a directed edge between two nodes in the system.
+
+    src_clock and dst_clock are the logical times at which a message is sent and received,
+    respectively. These effectively just give us ordering along the time axis, and as long
+    as the UI respects that a smaller time is always rendered to the left of a larger time,
+    it will display the system state correctly.
     """
-
-    # The name of the source node
     src: str
-    # The name of the destination node
-    dst: str
-
-    # src_clock and dst_clock are the logical times at which a message is sent and received,
-    # respectively. These effectively just give us ordering along the time axis, and as long
-    # as the UI respects that a smaller time is always rendered to the left of a larger time,
-    # it will display the system state correctly.
     src_clock: int
+
+    # The name of the message being sent from src to dst
+    message_type: str
+
+    # The node <dst> calls <dst_handler> at logical time <dst_clock>
+    dst: str
+    dst_handler: str
     dst_clock: int
+
 
 @dataclass
 class Snapshot:
@@ -43,13 +47,25 @@ class IntermediateRepresentation:
         self.__nodes = nodes
         self.__edges: list[Edge] = []
 
-    def receive(self, im: BaseSpecification.InternalMessage):
+    def receive(
+            self,
+            im: BaseSpecification.InternalMessage,
+            handler_name: str):
+        """
+        Receive gets called when a recipient node handles a message from a sender
+        node. The handler that the recipient node calls is named handle_name.
+
+        """
         assert im.dst_clock is not None
 
         e = Edge(
             str(im.message.sender_id),
-            str(im.message.recipient_id),
             im.src_clock,
+
+            str(im.message.__class__.__name__),
+
+            str(im.message.recipient_id),
+            handler_name,
             cast(int, im.dst_clock)
         )
         
@@ -133,7 +149,7 @@ class BaseSpecification:
         self.__clock += 1
         found_im.dst_clock = self.__clock
 
-        self._ir.receive(found_im)
+        self._ir.receive(found_im, handler_name)
         self.__messages[node_id].remove(found_im)
 
         new_messages = handler(found_im.message)

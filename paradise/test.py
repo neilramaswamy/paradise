@@ -23,7 +23,7 @@ class BadConsensusTest(unittest.TestCase):
         voting_protocol.handle_vote(0)
 
         # TODO: Need to test that _ir.edges is correct
-        voting_protocol._ir.serialize()
+        print(voting_protocol._ir.serialize())
 
         return voting_protocol
 
