@@ -1,0 +1,14 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.event-node {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background-color: lightblue;
+}
+
+.event-node>.react-flow__handle {
+  visibility: hidden;
+}
